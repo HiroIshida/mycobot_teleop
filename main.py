@@ -1,12 +1,14 @@
 import select
 import sys
 import termios
-from typing import Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 import actionlib
 import numpy as np
 import rospy
 import tf
+import yaml
 from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryGoal
 from geometry_msgs.msg import Pose
 from moveit_commander import MoveGroupCommander, roscpp_initialize
@@ -19,19 +21,20 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 class CoordinatesProvider:
     """Provides coordinate transformations using tf."""
 
-    def __init__(self):
+    def __init__(self, link_name: str):
+        self.link_name = link_name
         self.listener = tf.TransformListener()
         rospy.sleep(1.0)
 
-    def get_link6_flange_coords(self) -> Optional[Coordinates]:
+    def get_link_coords(self) -> Optional[Coordinates]:
         try:
             self.listener.waitForTransform(
-                "base_link", "link6_flange", rospy.Time(0), rospy.Duration(4.0)
+                "base_link", self.link_name, rospy.Time(0), rospy.Duration(4.0)
             )
-            trans, quat = self.listener.lookupTransform("base_link", "link6_flange", rospy.Time(0))
+            trans, quat = self.listener.lookupTransform("base_link", self.link_name, rospy.Time(0))
             return Coordinates(trans, quat, input_quaternion_order="xyzw")
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-            rospy.logerr("Failed to get transform from base_link to link6_flange")
+            rospy.logerr("Failed to get transform from base_link to %s", self.link_name)
             return None
 
 
@@ -90,14 +93,14 @@ class FollowJointTrajectoryClient:
 class IKClient:
     """Computes inverse kinematics using the GetPositionIK service."""
 
-    def __init__(self):
+    def __init__(self, ik_link_name: str, ik_timeout: float):
         rospy.wait_for_service("/compute_ik")
         compute_ik = rospy.ServiceProxy("/compute_ik", GetPositionIK, persistent=True)
         self.compute_ik_call = compute_ik
 
         request = GetPositionIKRequest()
         request.ik_request.group_name = "arm"
-        request.ik_request.ik_link_name = "link6_flange"
+        request.ik_request.ik_link_name = ik_link_name
         request.ik_request.robot_state.joint_state.name = [
             "joint1",
             "joint2",
@@ -107,7 +110,7 @@ class IKClient:
             "joint6",
         ]
         request.ik_request.pose_stamped.header.frame_id = "base_link"
-        request.ik_request.timeout = rospy.Duration(0.02)
+        request.ik_request.timeout = rospy.Duration(ik_timeout)
         request.ik_request.pose_stamped.header.stamp = rospy.Time.now()
         self.request = request
 
@@ -143,15 +146,17 @@ class KeyboardControlLoop:
         js_provider: JointStateProvider,
         ik_client: IKClient,
         fjt_client: FollowJointTrajectoryClient,
-        configuration_jump_threshold: float = 0.3,
-        eps: float = 0.001,
+        configuration_jump_threshold: float,
+        teleop_command_eps: float,
+        send_goal_time: float,
     ):
         self.coords = coords.copy_worldcoords()
         self.js_provider = js_provider
         self.ik_client = ik_client
         self.fjt_client = fjt_client
         self.configuration_jump_threshold = configuration_jump_threshold
-        self.eps = eps
+        self.teleop_command_eps = teleop_command_eps
+        self.send_goal_time = send_goal_time
 
     def run(self):
         fd = sys.stdin.fileno()
@@ -172,17 +177,17 @@ class KeyboardControlLoop:
                     if ch == "\x1b":
                         seq = sys.stdin.read(2)
                         if seq == "[A":
-                            self.coords.translate([0.0, 0.0, self.eps])
+                            self.coords.translate([0.0, 0.0, self.teleop_command_eps])
                         elif seq == "[B":
-                            self.coords.translate([0.0, 0.0, -self.eps])
+                            self.coords.translate([0.0, 0.0, -self.teleop_command_eps])
                         elif seq == "[C":
-                            self.coords.translate([self.eps, 0.0, 0.0])
+                            self.coords.translate([self.teleop_command_eps, 0.0, 0.0])
                         elif seq == "[D":
-                            self.coords.translate([-self.eps, 0.0, 0.0])
+                            self.coords.translate([-self.teleop_command_eps, 0.0, 0.0])
                     elif ch in ("\r", "\n"):
-                        self.coords.translate([0.0, self.eps, 0.0])
+                        self.coords.translate([0.0, self.teleop_command_eps, 0.0])
                     elif ch == "\x7f":
-                        self.coords.translate([0.0, -self.eps, 0.0])
+                        self.coords.translate([0.0, -self.teleop_command_eps, 0.0])
                     elif ch == "q":
                         break
 
@@ -206,22 +211,28 @@ class KeyboardControlLoop:
                         rospy.logwarn("L1 norm exceeded, not allowing jump")
                         self.coords = coords_prev
                     else:
-                        self.fjt_client.send_goal(new_q, 0.5, blocking=False)
+                        # Use the configured send_goal_time instead of a hard-coded value.
+                        self.fjt_client.send_goal(new_q, self.send_goal_time, blocking=False)
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
 def send_initial_trajectory(
-    fjt_client: FollowJointTrajectoryClient, ik_client: IKClient
+    fjt_client: FollowJointTrajectoryClient,
+    ik_client: IKClient,
+    home_coords: dict,
+    home_coords_ik_seed: list,
 ) -> (np.ndarray, Coordinates):
-    init_coords = Coordinates([0.163, -0.037, 0.22], [-0.5 * np.pi, 0.0, -0.5 * np.pi])
-    init_q = np.array([-2.97, 0.026, -1.92, 0.33, 0, 0.16])
-    q_solution = ik_client.compute_ik(skcoords_to_rospose(init_coords), init_q)
+    # Create a Coordinates object from the config values.
+    coords_obj = Coordinates(home_coords["position"], home_coords["orientation"])
+    q_solution = ik_client.compute_ik(
+        skcoords_to_rospose(coords_obj), np.array(home_coords_ik_seed)
+    )
     if q_solution is None:
         rospy.logerr("Initial IK computation failed.")
         sys.exit(1)
     fjt_client.send_goal(q_solution, 3.0, blocking=True)
-    return q_solution, init_coords
+    return q_solution, coords_obj
 
 
 def plan_and_execute(q_solution: np.ndarray):
@@ -233,16 +244,44 @@ def plan_and_execute(q_solution: np.ndarray):
         rospy.loginfo("Execution finished.")
 
 
+@dataclass
+class Config:
+    control_frame_name: str
+    ik_timeout: float
+    home_coords: Dict[str, Any]
+    home_coords_ik_seed: List[float]
+    configuration_jump_threshold: float
+    teleop_command_eps: float
+    send_goal_time: float
+
+    @staticmethod
+    def from_yaml(path: str) -> "Config":
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
+        return Config(**data)
+
+
 if __name__ == "__main__":
     rospy.init_node("get_link6_flange_transform", anonymous=True)
     roscpp_initialize(sys.argv)
+
+    config = Config.from_yaml("config.yaml")
+
     fjt_client = FollowJointTrajectoryClient()
-    ik_client = IKClient()
-    q_solution, init_coords = send_initial_trajectory(fjt_client, ik_client)
+    ik_client = IKClient(ik_link_name=config.control_frame_name, ik_timeout=config.ik_timeout)
+    js_provider = JointStateProvider()
+    q_solution, init_coords = send_initial_trajectory(
+        fjt_client, ik_client, config.home_coords, config.home_coords_ik_seed
+    )
     plan_and_execute(q_solution)
 
-    js_provider = JointStateProvider()
     kcl = KeyboardControlLoop(
-        init_coords, js_provider, ik_client, fjt_client, configuration_jump_threshold=0.3, eps=0.001
+        init_coords,
+        js_provider,
+        ik_client,
+        fjt_client,
+        configuration_jump_threshold=config.configuration_jump_threshold,
+        teleop_command_eps=config.teleop_command_eps,
+        send_goal_time=config.send_goal_time,
     )
     kcl.run()

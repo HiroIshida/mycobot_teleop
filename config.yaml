@@ -1,0 +1,9 @@
+control_frame_name: "link6_flange"
+ik_timeout: 0.02
+configuration_jump_threshold: 0.3
+teleop_command_eps: 0.001
+send_goal_time: 0.5
+home_coords:
+  position: [0.163, -0.037, 0.22]
+  orientation: [-1.5708, 0.0, -1.5708]
+home_coords_ik_seed: [-2.97, 0.026, -1.92, 0.33, 0.0, 0.16]
