@@ -10,8 +10,12 @@ import rospy
 import tf
 import yaml
 from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryGoal
-from geometry_msgs.msg import Pose
-from moveit_commander import MoveGroupCommander, roscpp_initialize
+from geometry_msgs.msg import Pose, PoseStamped
+from moveit_commander import (
+    MoveGroupCommander,
+    PlanningSceneInterface,
+    roscpp_initialize,
+)
 from moveit_msgs.srv import GetPositionIK, GetPositionIKRequest
 from sensor_msgs.msg import JointState
 from skrobot.coordinates import Coordinates, matrix2quaternion
@@ -99,6 +103,7 @@ class IKClient:
         self.compute_ik_call = compute_ik
 
         request = GetPositionIKRequest()
+        request.ik_request.avoid_collisions = True
         request.ik_request.group_name = "arm"
         request.ik_request.ik_link_name = ik_link_name
         request.ik_request.robot_state.joint_state.name = [
@@ -262,10 +267,17 @@ class Config:
 
 
 if __name__ == "__main__":
-    rospy.init_node("get_link6_flange_transform", anonymous=True)
+    rospy.init_node("mycobot_teleop", anonymous=False)
     roscpp_initialize(sys.argv)
 
     config = Config.from_yaml("config.yaml")
+
+    scene = PlanningSceneInterface(synchronous=True)
+    pose = PoseStamped()
+    pose.header.stamp = rospy.Time.now()
+    pose.header.frame_id = "base_link"
+    pose.pose.position.z = 0.005  # table safety margin
+    scene.add_plane("table_plane", pose)
 
     fjt_client = FollowJointTrajectoryClient()
     ik_client = IKClient(ik_link_name=config.control_frame_name, ik_timeout=config.ik_timeout)
