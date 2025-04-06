@@ -1,7 +1,9 @@
+#!/usr/bin/env python3
 import select
 import sys
 import termios
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import actionlib
@@ -17,6 +19,7 @@ from moveit_commander import (
     roscpp_initialize,
 )
 from moveit_msgs.srv import GetPositionIK, GetPositionIKRequest
+from rospkg import RosPack
 from sensor_msgs.msg import JointState
 from skrobot.coordinates import Coordinates, matrix2quaternion
 from trajectory_msgs.msg import JointTrajectoryPoint
@@ -270,7 +273,9 @@ if __name__ == "__main__":
     rospy.init_node("mycobot_teleop", anonymous=False)
     roscpp_initialize(sys.argv)
 
-    config = Config.from_yaml("config.yaml")
+    pkg_path = Path(RosPack().get_path("mycobot_teleop"))
+    conf_path = pkg_path.resolve() / "config" / "leader.yaml"
+    config = Config.from_yaml(conf_path)
 
     scene = PlanningSceneInterface(synchronous=True)
     pose = PoseStamped()
