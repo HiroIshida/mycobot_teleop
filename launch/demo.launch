@@ -28,7 +28,7 @@
     <arg name="debug" value="$(arg debug)"/>
   </include>
 
-  <!-- setup follower arm -->
+  <!-- setup follower arm gazebo + controller-->
   <arg name="model" default="$(find mycobot_description)/urdf/mycobot.urdf.xacro" />
   <node name="urdf_spawner2" pkg="gazebo_ros" type="spawn_model" respawn="false" output="screen"
     args="-urdf -model myCobot2 -param robot_description2 -x 0.0 -y -0.5 -z 1.02" />
@@ -44,4 +44,8 @@
       <remap from="controller_manager" to="/follower/controller_manager"/>
     </node>
   </group>
+
+  <!-- setup follower teleop node-->
+  <node name="follower_teleop" pkg="mycobot_teleop" type="follower_teleop.py" respawn="false"
+    output="screen"/>
 </launch>

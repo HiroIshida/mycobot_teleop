@@ -33,9 +33,10 @@ class CoordinatesProvider:
 class JointStateProvider:
     """Subscribes to joint states and provides the latest joint angles."""
 
-    def __init__(self):
+    def __init__(self, namespace: Optional[str] = None):
         self._joint_angles = None
-        rospy.Subscriber("/joint_states", JointState, self.callback)
+        topic = "/joint_states" if namespace is None else f"/{namespace}/joint_states"
+        rospy.Subscriber(topic, JointState, self.callback)
 
     def callback(self, msg: JointState):
         self._joint_angles = np.array(msg.position)
@@ -50,10 +51,12 @@ class JointStateProvider:
 class FollowJointTrajectoryClient:
     """Sends joint trajectory goals to the action server."""
 
-    def __init__(self):
-        self.client = actionlib.SimpleActionClient(
-            "/arm_controller/follow_joint_trajectory", FollowJointTrajectoryAction
-        )
+    def __init__(self, namespace: Optional[str] = None):
+        if namespace is None:
+            topic = "/arm_controller/follow_joint_trajectory"
+        else:
+            topic = f"/{namespace}/arm_controller/follow_joint_trajectory"
+        self.client = actionlib.SimpleActionClient(topic, FollowJointTrajectoryAction)
         rospy.loginfo("Waiting for action server to start...")
         self.client.wait_for_server()
         rospy.loginfo("Action server started, sending goal.")
@@ -75,7 +78,7 @@ class FollowJointTrajectoryClient:
         self.goal.trajectory.points[0].time_from_start = rospy.Duration(duration)
         self.goal.trajectory.header.stamp = rospy.Time.now()
         self.client.send_goal(self.goal)
-        rospy.loginfo("Sent goal to action server")
+        rospy.logdebug("Sent goal to action server")
         if blocking:
             self.client.wait_for_result()
             result = self.client.get_result()
