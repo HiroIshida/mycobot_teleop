@@ -92,6 +92,7 @@ class KeyboardControlLoop:
         self.send_goal_time = send_goal_time
 
     def run(self):
+        rospy.loginfo("Press arrow keys, Enter, Backspace, or 'q' to quit.")
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
 
@@ -99,7 +100,6 @@ class KeyboardControlLoop:
             new_settings = termios.tcgetattr(fd)
             new_settings[3] &= ~(termios.ICANON | termios.ECHO)
             termios.tcsetattr(fd, termios.TCSANOW, new_settings)
-            print("Press arrow keys, Enter, Backspace, or 'q' to quit.", flush=True)
 
             while not rospy.is_shutdown():
                 rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
