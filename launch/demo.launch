@@ -6,6 +6,7 @@
   <arg name="use_gui" default="false" />
   <arg name="gazebo_gui" default="true"/>
   <arg name="paused" default="false"/>
+  <arg name="rviz" default="false" />
 
   <include file="$(find mycobot_gazebo)/launch/mycobot_with_emptyworld.launch">
     <arg name="world_name" value="$(find mycobot_gazebo)/worlds/table.world" />
@@ -23,7 +24,7 @@
     <arg name="load_robot_description" value="$(arg load_robot_description)"/>
   </include>
 
-  <include file="$(find mycobot_move_it_config)/launch/moveit_rviz.launch">
+  <include file="$(find mycobot_move_it_config)/launch/moveit_rviz.launch" if="$(arg rviz)">
     <arg name="rviz_config" value="$(find mycobot_move_it_config)/launch/moveit.rviz"/>
     <arg name="debug" value="$(arg debug)"/>
   </include>

@@ -56,8 +56,9 @@ class IKClient:
             return None
 
         if response.error_code.val == 1:
-            rospy.loginfo("IK solution found")
+            rospy.logdebug("IK solution found")
             return np.array(response.solution.joint_state.position)
+        rospy.logdebug("IK solution not found")
         return None
 
 
