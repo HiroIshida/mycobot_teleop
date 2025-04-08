@@ -8,8 +8,8 @@ def main_loop():
     fjt_client = FollowJointTrajectoryClient(namespace="follower")
     while not rospy.is_shutdown():
         joint_state = js_provider.joint_angles
-        fjt_client.send_goal(joint_state, duration=0.2, blocking=False)
-        rospy.sleep(0.05)
+        fjt_client.send_goal(joint_state, duration=0.1, blocking=False)
+        rospy.sleep(0.02)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 control_frame_name: "link6_flange"
+realtime_hz: 100
 ik_timeout: 0.02
 configuration_jump_threshold: 0.3
 teleop_command_eps: 0.001

@@ -82,6 +82,7 @@ class KeyboardControlLoop:
         configuration_jump_threshold: float,
         teleop_command_eps: float,
         send_goal_time: float,
+        realtime_hz: float,  # just warn if it takes too long
     ):
         self.coords = coords.copy_worldcoords()
         self.js_provider = js_provider
@@ -90,6 +91,7 @@ class KeyboardControlLoop:
         self.configuration_jump_threshold = configuration_jump_threshold
         self.teleop_command_eps = teleop_command_eps
         self.send_goal_time = send_goal_time
+        self.realtime_hz = realtime_hz
 
     def run(self):
         rospy.loginfo("Press arrow keys, Enter, Backspace, or 'q' to quit.")
@@ -101,8 +103,16 @@ class KeyboardControlLoop:
             new_settings[3] &= ~(termios.ICANON | termios.ECHO)
             termios.tcsetattr(fd, termios.TCSANOW, new_settings)
 
+            t_previous = rospy.Time.now()
             while not rospy.is_shutdown():
-                rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
+                t_current = rospy.Time.now()
+                elapsed_time = (t_current - t_previous).to_sec()
+                rospy.logdebug(f"time per loop: {elapsed_time}")
+                if elapsed_time > 1.0 / self.realtime_hz:
+                    rospy.logwarn(f"taking too long per loop: {elapsed_time}")
+                t_previous = t_current
+
+                rlist, _, _ = select.select([sys.stdin], [], [], 0.005)
                 if rlist:
                     ch = sys.stdin.read(1)
                     coords_prev = self.coords.copy_worldcoords()
@@ -186,6 +196,7 @@ class Config:
     configuration_jump_threshold: float
     teleop_command_eps: float
     send_goal_time: float
+    realtime_hz: float
 
     @staticmethod
     def from_yaml(path: str) -> "Config":
@@ -225,5 +236,6 @@ if __name__ == "__main__":
         configuration_jump_threshold=config.configuration_jump_threshold,
         teleop_command_eps=config.teleop_command_eps,
         send_goal_time=config.send_goal_time,
+        realtime_hz=config.realtime_hz,
     )
     kcl.run()
