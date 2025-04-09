@@ -47,6 +47,6 @@
   </group>
 
   <!-- setup follower teleop node-->
-  <node name="follower_teleop" pkg="mycobot_teleop" type="follower_teleop.py" respawn="false"
+  <node name="follower_teleop" pkg="mycobot_teleop" type="follower_teleop.py" respawn="true"
     output="screen"/>
 </launch>
